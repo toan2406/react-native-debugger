@@ -15,6 +15,9 @@ import {
   filterStagedActions,
   filterState,
 } from 'redux-devtools-core/lib/utils/filters';
+import MockManager from '../utils/MockManager';
+
+const mockManager = new MockManager();
 
 function configureStore(next, subscriber, options) {
   return instrument(subscriber, options)(next);
@@ -54,22 +57,24 @@ function relay(type, state, instance, action, nextActionId) {
       type === 'ERROR'
         ? state
         : stringify(
-          filterState(
-            state,
-            type,
-            filters,
-            stateSanitizer,
-            actionSanitizer,
-            nextActionId,
-            predicate
-          ),
-          serializeState
-        );
+            filterState(
+              state,
+              type,
+              filters,
+              stateSanitizer,
+              actionSanitizer,
+              nextActionId,
+              predicate,
+            ),
+            serializeState,
+          );
   }
   if (type === 'ACTION') {
     message.action = stringify(
-      !actionSanitizer ? action : actionSanitizer(action.action, nextActionId - 1),
-      serializeAction
+      !actionSanitizer
+        ? action
+        : actionSanitizer(action.action, nextActionId - 1),
+      serializeAction,
     );
     message.isExcess = isExcess;
     message.nextActionId = nextActionId;
@@ -125,6 +130,12 @@ function exportState({ id: instanceId, store, serializeState }) {
   });
 }
 
+function applyMock(action) {
+  if (action.type === 'APPLY_MOCK') {
+    mockManager.applyMock(action.mockData);
+  }
+}
+
 function handleMessages(message) {
   const { id, instanceId, type, action, state, toAll } = message;
   if (toAll) {
@@ -142,6 +153,7 @@ function handleMessages(message) {
   switch (type) {
     case 'DISPATCH':
       store.liftedStore.dispatch(action);
+      applyMock(action);
       break;
     case 'ACTION':
       dispatchRemotely(action, instance);
@@ -180,7 +192,11 @@ function start(instance) {
 
 function checkForReducerErrors(liftedState, instance) {
   if (liftedState.computedStates[liftedState.currentStateIndex].error) {
-    relay('STATE', filterStagedActions(liftedState, instance.filters), instance);
+    relay(
+      'STATE',
+      filterStagedActions(liftedState, instance.filters),
+      instance,
+    );
     return true;
   }
   return false;
@@ -200,7 +216,8 @@ function handleChange(state, liftedState, maxAge, instance) {
     const liftedAction = liftedState.actionsById[nextActionId - 1];
     if (isFiltered(liftedAction.action, filters)) return;
     relay('ACTION', state, instance, liftedAction, nextActionId);
-    if (!isExcess && maxAge) isExcess = liftedState.stagedActionIds.length >= maxAge;
+    if (!isExcess && maxAge)
+      isExcess = liftedState.stagedActionIds.length >= maxAge;
   } else {
     if (lastAction === 'JUMP_TO_STATE') return;
     if (lastAction === 'PAUSE_RECORDING') {
@@ -251,6 +268,12 @@ export default function devToolsEnhancer(options = {}) {
       pauseActionType,
     })(reducer, initialState);
 
+    const _dispatch = store.dispatch;
+    store.dispatch = action => {
+      const mockedAction = mockManager.mockAction(action);
+      return _dispatch(mockedAction);
+    };
+
     instances[id] = {
       name: name || id,
       id,
@@ -272,7 +295,12 @@ export default function devToolsEnhancer(options = {}) {
 
     start(instances[id]);
     store.subscribe(() => {
-      handleChange(store.getState(), store.liftedStore.getState(), maxAge, instances[id]);
+      handleChange(
+        store.getState(),
+        store.liftedStore.getState(),
+        maxAge,
+        instances[id],
+      );
     });
     return store;
   };
@@ -294,7 +322,7 @@ devToolsEnhancer.updateStore = (newStore, instanceId) => {
   console.warn(
     '[RNDebugger]',
     '`updateStore` is deprecated use `window.__REDUX_DEVTOOLS_EXTENSION_COMPOSE__` instead:',
-    'https://github.com/jhen0409/react-native-debugger/blob/master/docs/redux-devtools-integration.md'
+    'https://github.com/jhen0409/react-native-debugger/blob/master/docs/redux-devtools-integration.md',
   );
 
   const keys = Object.keys(instances);
@@ -303,7 +331,7 @@ devToolsEnhancer.updateStore = (newStore, instanceId) => {
   if (keys.length > 1 && !instanceId) {
     console.warn(
       'You have multiple stores,',
-      'please provide `instanceId` argument (`updateStore(store, instanceId)`)'
+      'please provide `instanceId` argument (`updateStore(store, instanceId)`)',
     );
   }
   if (instanceId) {
@@ -319,7 +347,7 @@ const compose = options => (...funcs) => (...args) => {
   const instanceId = generateId(options.instanceId);
   return [preEnhancer(instanceId), ...funcs].reduceRight(
     (composed, f) => f(composed),
-    devToolsEnhancer({ ...options, instanceId })(...args)
+    devToolsEnhancer({ ...options, instanceId })(...args),
   );
 };
 

@@ -92,7 +92,7 @@
     "redux-devtools-core": "^0.2.1",
     "redux-devtools-instrument": "^1.9.0",
     "redux-persist": "^4.10.2",
-    "remotedev-app": "^0.10.8",
+    "remotedev-app": "git+ssh://git@github.com:toan2406/remotedev-app.git#v0.13.2",
     "remotedev-monitor-components": "^0.0.5",
     "remotedev-slider": "^1.1.3"
   },
